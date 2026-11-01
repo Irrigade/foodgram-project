@@ -1,17 +1,50 @@
-version: '3.3'
 services:
+  db:
+    image: postgres:15
+    env_file: ../.env
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: always
+
+  backend:
+    build: ../backend
+    env_file: ../.env
+    volumes:
+      - static_django:/app/static    # <-- Django собирает сюда
+      - media:/app/media
+      - ../data:/app/data
+    depends_on:
+      - db
+    restart: always
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
+             gunicorn foodgram.wsgi:application --bind 0.0.0.0:8000"
 
   frontend:
-    container_name: foodgram-front
     build: ../frontend
     volumes:
-      - ../frontend/:/app/result_build/
-  nginx:
-    container_name: foodgram-proxy
+      - static_react:/app/result_build   # <-- React собирает сюда
+    command: cp -r /app/build/. /app/result_build/
+    restart: "no"
+
+  gateway:
     image: nginx:1.25.4-alpine
     ports:
-      - "80:80"
+      - "8000:80"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
-      - ../frontend/build:/usr/share/nginx/html/
+      - static_react:/frontend_static   # <-- Nginx читает статику React
+      - static_django:/backend_static   # <-- Nginx читает статику Django
+      - media:/media
       - ../docs/:/usr/share/nginx/html/api/docs/
+    depends_on:
+      - backend
+      - frontend
+    restart: always
+
+volumes:
+  pg_data:
+  static_react:
+  static_django:
+  media:
